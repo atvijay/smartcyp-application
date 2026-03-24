@@ -49,18 +49,17 @@ with st.sidebar:
 
 # Molecular Input Section
 st.subheader("Structure Input")
+st.info("Draw a molecule below to begin analysis.")
 
-# Create a toggle so the user chooses their preferred input method
-input_method = st.radio("Choose Input Method:", ["Interactive Sketcher", "SMILES Text Input"], horizontal=True)
+# Simplest version of the sketcher
+molecule_smiles = st_ketcher(key="ketcher_editor")
 
-if input_method == "Interactive Sketcher":
-    st.write("Modify structure visually (changes update automatically):")
-    # We use a static starting molecule for the sketcher to prevent the TypeError loop
-    smiles = st_ketcher(formula="CNC1=CC=C(C=C1)C2=CC=CC=C2", key="ketcher_editor")
+# Safety logic: If sketcher is empty, use a default SMILES so the app doesn't show an error
+if not molecule_smiles or molecule_smiles == "":
+    smiles = "CNC1=CC=C(C=C1)C2=CC=CC=C2" # Default (e.g., Benzene or your test molecule)
+    st.caption("Showing default molecule. Start drawing to update.")
 else:
-    smiles = st.text_input("Enter SMILES manually:", "CNC1=CC=C(C=C1)C2=CC=CC=C2", key="text_input_field")
-
-# The rest of your code (if smiles: mol = Chem.MolFromSmiles(smiles)...) stays the same!
+    smiles = molecule_smiles
 
 # --- 3. THE ANALYSIS LOGIC ---
 if smiles:
