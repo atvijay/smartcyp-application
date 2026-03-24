@@ -51,14 +51,18 @@ with st.sidebar:
 st.subheader("Structure Input")
 col_kbd, col_sketch = st.columns([1, 2])
 
+# Initialize a default SMILES in session state if it doesn't exist
+if 'smiles_input' not in st.session_state:
+    st.session_state.smiles_input = "CNC1=CC=C(C=C1)C2=CC=CC=C2"
+
 with col_kbd:
-    # We use session_state to sync the text box and the sketcher
-    input_smiles = st.text_input("Enter/Edit SMILES:", "CNC1=CC=C(C=C1)C2=CC=CC=C2")
+    # Manual SMILES input
+    input_smiles = st.text_input("Enter/Edit SMILES:", value=st.session_state.smiles_input)
 
 with col_sketch:
     st.write("Modify structure visually:")
-    # Ketcher takes the input_smiles and returns updates
-    smiles = st_ketcher(formula=input_smiles)
+    # We add a unique 'key' here to prevent the TypeError
+    smiles = st_ketcher(formula=str(input_smiles), key="molecule_editor")
 
 # --- 3. THE ANALYSIS LOGIC ---
 if smiles:
