@@ -49,20 +49,18 @@ with st.sidebar:
 
 # Molecular Input Section
 st.subheader("Structure Input")
-col_kbd, col_sketch = st.columns([1, 2])
 
-# Initialize a default SMILES in session state if it doesn't exist
-if 'smiles_input' not in st.session_state:
-    st.session_state.smiles_input = "CNC1=CC=C(C=C1)C2=CC=CC=C2"
+# Create a toggle so the user chooses their preferred input method
+input_method = st.radio("Choose Input Method:", ["Interactive Sketcher", "SMILES Text Input"], horizontal=True)
 
-with col_kbd:
-    # Manual SMILES input
-    input_smiles = st.text_input("Enter/Edit SMILES:", value=st.session_state.smiles_input)
+if input_method == "Interactive Sketcher":
+    st.write("Modify structure visually (changes update automatically):")
+    # We use a static starting molecule for the sketcher to prevent the TypeError loop
+    smiles = st_ketcher(formula="CNC1=CC=C(C=C1)C2=CC=CC=C2", key="ketcher_editor")
+else:
+    smiles = st.text_input("Enter SMILES manually:", "CNC1=CC=C(C=C1)C2=CC=CC=C2", key="text_input_field")
 
-with col_sketch:
-    st.write("Modify structure visually:")
-    # We add a unique 'key' here to prevent the TypeError
-    smiles = st_ketcher(formula=str(input_smiles), key="molecule_editor")
+# The rest of your code (if smiles: mol = Chem.MolFromSmiles(smiles)...) stays the same!
 
 # --- 3. THE ANALYSIS LOGIC ---
 if smiles:
