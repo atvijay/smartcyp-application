@@ -9,9 +9,9 @@ from streamlit_ketcher import st_ketcher
 
 st.set_page_config(page_title="SMARTCyp Pro v3.1", layout="wide")
 
-# -------------------------------
+
 # UTILITIES
-# -------------------------------
+
 def safe_shortest_path_length(mol, idx1, idx2):
     try:
         path = Chem.GetShortestPath(mol, idx1, idx2)
@@ -20,9 +20,9 @@ def safe_shortest_path_length(mol, idx1, idx2):
         return 999
 
 
-# -------------------------------
-# SMARTCyp-like reactivity
-# -------------------------------
+
+# Reactivity rules
+
 def get_atom_type(atom):
     sym = atom.GetSymbol()
 
@@ -57,9 +57,9 @@ def get_atom_type(atom):
     return ("Other", 80.0)
 
 
-# -------------------------------
-# Accessibility (improved)
-# -------------------------------
+
+# Accessibility 
+
 def accessibility_score(atom):
     score = 0
 
@@ -77,9 +77,9 @@ def accessibility_score(atom):
 
     return score
 
-# -------------------------------
-# SMARTCYP SCORING
-# -------------------------------
+
+# SCORING
+
 def analyze_isoform(mol, isoform):
     results = []
 
@@ -126,9 +126,9 @@ def analyze_isoform(mol, isoform):
     return df.sort_values("Score")
 
 
-# -------------------------------
-# METABOLITE GENERATION (v3)
-# -------------------------------
+
+# METABOLITE GENERATION 
+
 def generate_metabolites_v3(mol, df):
     metabolites = []
 
@@ -191,9 +191,9 @@ def generate_metabolites_v3(mol, df):
     return pd.DataFrame(metabolites).drop_duplicates()
 
 
-# -------------------------------
-# AGENTIC OPTIMIZATION
-# -------------------------------
+
+# OPTIMIZATION
+
 def suggest_modifications(mol, df):
     suggestions = []
 
@@ -236,9 +236,9 @@ def suggest_modifications(mol, df):
     return pd.DataFrame(suggestions).drop_duplicates()
 
 
-# -------------------------------
+
 # UI
-# -------------------------------
+
 st.title("SMARTCyp Pro v3.1")
 
 iso = st.sidebar.selectbox(
@@ -261,9 +261,9 @@ else:
     if s:
         smiles = s.strip()
 
-# -------------------------------
+
 # MAIN APP
-# -------------------------------
+
 if smiles:
     mol = Chem.MolFromSmiles(smiles)
 
@@ -330,7 +330,7 @@ if smiles:
 
         # Optimization
         with tab4:
-            st.subheader("🧠 Metabolism-Guided Optimization")
+            st.subheader(" Metabolism-Guided Optimization")
 
             opt_df = suggest_modifications(mol, df)
 
