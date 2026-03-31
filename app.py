@@ -6,8 +6,35 @@ from rdkit.Chem import rdChemReactions
 from stmol import showmol
 import py3Dmol
 from streamlit_ketcher import st_ketcher
+# GNN IMPORTS
+import torch
+from torch_geometric.data import Data
 
+import os
+
+# 1. MUST BE THE VERY FIRST STREAMLIT COMMAND
 st.set_page_config(page_title="SMARTCyp Pro v3.1", layout="wide")
+
+# 2. DEFINE THE FUNCTION BEFORE CALLING IT
+@st.cache_resource
+def load_gnn_model():
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    model_path = os.path.join(current_dir, "smartcyp_gnn.pt")
+    
+    # Check if the file exists
+    if not os.path.exists(model_path):
+        st.warning("⚠️ GNN weight file (smartcyp_gnn.pt) not found. Using uninitialized model for UI testing.")
+        # Replace 'YourGNNClass' with your actual class name
+        # model = YourGNNClass() 
+        # return model
+        return None 
+
+    model = torch.load(model_path, map_location=torch.device("cpu"))
+    model.eval()
+    return model
+
+# 3. NOW CALL THE FUNCTION
+gnn_model = load_gnn_model()
 
 
 # UTILITIES
@@ -18,6 +45,54 @@ def safe_shortest_path_length(mol, idx1, idx2):
         return len(path) if path else 999
     except:
         return 999
+
+def build_gnn_graph(mol, smartcyp_scores):
+    node_features = []
+
+    for atom in mol.GetAtoms():
+        idx = atom.GetIdx()
+
+        # Basic RDKit features
+        rdkit_feats = [
+            atom.GetAtomicNum(),
+            atom.GetDegree(),
+            int(atom.GetIsAromatic()),
+        ]
+
+        # SMARTCyp features
+        sc = smartcyp_scores[idx]
+        smartcyp_feats = [
+            sc["Score"],
+            sc["NormScore"]
+        ]
+
+        node_features.append(rdkit_feats + smartcyp_feats)
+
+    x = torch.tensor(node_features, dtype=torch.float)
+
+    edge_index = []
+    for bond in mol.GetBonds():
+        i = bond.GetBeginAtomIdx()
+        j = bond.GetEndAtomIdx()
+        edge_index.append([i, j])
+        edge_index.append([j, i])
+
+    edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
+
+    return Data(x=x, edge_index=edge_index)
+
+def run_gnn(mol, df):
+    # Convert df → list of dicts (indexed by atom)
+    smartcyp_scores = df.to_dict("records")
+
+    graph = build_gnn_graph(mol, smartcyp_scores)
+
+    with torch.no_grad():
+        preds = gnn_model(graph.x, graph.edge_index)
+
+    preds = preds.squeeze().numpy()
+
+    return preds
 
 
 
@@ -123,7 +198,21 @@ def analyze_isoform(mol, isoform):
         (df["Score"].max() - df["Score"].min() + 1e-6)
     )
 
-    return df.sort_values("Score")
+    # 🔥 GNN integration
+    try:
+        gnn_scores = run_gnn(mol, df)
+        df["GNN"] = gnn_scores
+        df["GNN"] = 1 - df["GNN"]
+
+        alpha = 0.6
+        df["FinalScore"] = alpha * df["NormScore"] + (1 - alpha) * df["GNN"]
+
+    except Exception as e:
+        df["GNN"] = 0.0
+        df["FinalScore"] = df["NormScore"]
+
+    # ✅ THIS MUST BE INDENTED
+    return df.sort_values("FinalScore")
 
 
 
@@ -262,102 +351,117 @@ else:
         smiles = s.strip()
 
 
-# MAIN APP
+# --- MAIN APP ---
 
 if smiles:
     mol = Chem.MolFromSmiles(smiles)
 
     if mol:
+        # 1. Pre-process molecule (get largest fragment)
         mol = max(
             Chem.GetMolFrags(mol, asMols=True),
             key=lambda m: m.GetNumAtoms()
         )
 
+        # 2. Perform main analysis
         df = analyze_isoform(mol, iso)
 
+        # 3. Initialize Tabs
         tab1, tab2, tab3, tab4 = st.tabs(
-            ["Analysis","3D","Metabolites","Optimization"]
+            ["Analysis", "3D", "Metabolites", "Optimization"]
         )
 
-        # Analysis
+        # --- TAB 1: Analysis ---
         with tab1:
-            st.dataframe(df)
+            st.subheader("Site of Metabolism Prediction")
+            st.dataframe(df[["Atom", "Type", "Score", "NormScore", "GNN", "FinalScore"]])
 
+            top_atoms = [int(x-1) for x in df.nsmallest(3, "FinalScore")["Atom"]]
             img = Draw.MolToImage(
                 mol,
-                highlightAtoms=[int(x-1) for x in df.head(3)["Atom"]],
-                size=(400,400)
+                highlightAtoms=top_atoms,
+                size=(400, 400)
             )
-            st.image(img)
+            st.image(img, caption="Top 3 predicted Sites of Metabolism highlighted")
 
             st.download_button(
-                "Download CSV",
-                df.to_csv(index=False),
-                "results.csv"
+                label="Download Results as CSV",
+                data=df.to_csv(index=False),
+                file_name="smartcyp_results.csv",
+                mime="text/csv"
             )
 
-        # 3D
+        # --- TAB 2: 3D View ---
         with tab2:
+            st.subheader("3D Conformational View")
             m3d = Chem.AddHs(mol)
             if AllChem.EmbedMolecule(m3d) == 0:
+                AllChem.MMFFOptimizeMolecule(m3d)
                 view = py3Dmol.view(width=600, height=400)
                 view.addModel(Chem.MolToMolBlock(m3d), "mol")
-                view.setStyle({"stick": {}})
+                view.setStyle({"stick": {}, "sphere": {"radius": 0.3}})
                 view.zoomTo()
                 showmol(view)
+            else:
+                st.warning("Could not generate 3D coordinates.")
 
-        # Metabolites
+        # --- TAB 3: Metabolites (NEWLY ADDED) ---
         with tab3:
+            st.subheader("Predicted Metabolites")
             met_df = generate_metabolites_v3(mol, df)
 
             if not met_df.empty:
                 st.dataframe(met_df)
 
                 for _, row in met_df.iterrows():
-                    st.write(f"{row['Reaction']} (Site {row['Site']})")
-
-                    m = Chem.MolFromSmiles(row["SMILES"])
-                    if m:
-                        st.image(Draw.MolToImage(m, size=(250,250)))
+                    st.write(f"**{row['Reaction']}** (Site {row['Site']})")
+                    
+                    m_met = Chem.MolFromSmiles(row["SMILES"])
+                    if m_met:
+                        st.image(Draw.MolToImage(m_met, size=(250, 250)))
 
                 st.download_button(
-                    "Download Metabolites",
-                    met_df.to_csv(index=False),
-                    "metabolites.csv"
+                    label="Download Metabolites CSV",
+                    data=met_df.to_csv(index=False),
+                    file_name="metabolites.csv",
+                    mime="text/csv"
                 )
             else:
-                st.info("No metabolites generated")
+                st.info("No metabolites predicted for this molecule.")
 
-        # Optimization
+        # --- TAB 4: Optimization ---
         with tab4:
-            st.subheader(" Metabolism-Guided Optimization")
-
+            st.subheader("Metabolism-Guided Optimization")
             opt_df = suggest_modifications(mol, df)
 
             if not opt_df.empty:
                 st.dataframe(opt_df)
 
                 for _, row in opt_df.iterrows():
-                    st.write(f"{row['Strategy']} (Site {row['Site']})")
+                    st.write(f"**{row['Strategy']}** (Site {row['Site']})")
+                    m_opt = Chem.MolFromSmiles(row["SMILES"])
+                    if m_opt:
+                        st.image(Draw.MolToImage(m_opt, size=(250, 250)))
 
-                    m = Chem.MolFromSmiles(row["SMILES"])
-                    if m:
-                        st.image(Draw.MolToImage(m, size=(250,250)))
-
-                        # Evaluate improvement
-                        new_df = analyze_isoform(m, iso)
-                        if new_df["Score"].min() < df["Score"].min():
+                        new_df = analyze_isoform(m_opt, iso)
+                        if new_df["FinalScore"].min() < df["FinalScore"].min():
                             st.success("Improved metabolic stability ✅")
                         else:
                             st.warning("No improvement ⚠️")
 
                 st.download_button(
-                    "Download Optimized Molecules",
-                    opt_df.to_csv(index=False),
-                    "optimized.csv"
+                    label="Download Optimized Molecules",
+                    data=opt_df.to_csv(index=False),
+                    file_name="optimized.csv",
+                    mime="text/csv"
                 )
             else:
-                st.info("No optimization suggestions")
+                st.info("No optimization suggestions available.")
+
+    else:
+        st.error("Invalid SMILES string. Please check your input.")
+else:
+    st.info("Please enter a SMILES string to begin.")
 st.sidebar.info("""
 **SMARTCyp Pro v3.1**
 Predicts metabolic sites for CYP3A4, 2D6, and 2C9.
