@@ -23,10 +23,6 @@ def load_gnn_model():
     
     # Check if the file exists
     if not os.path.exists(model_path):
-        st.warning("⚠️ GNN weight file (smartcyp_gnn.pt) not found. Using uninitialized model for UI testing.")
-        # Replace 'YourGNNClass' with your actual class name
-        # model = YourGNNClass() 
-        # return model
         return None 
 
     model = torch.load(model_path, map_location=torch.device("cpu"))
